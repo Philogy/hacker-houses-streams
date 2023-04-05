@@ -41,15 +41,16 @@ contract GrantStreamer is Owned {
         return result;
     }
 
-    function unlockedBuilderAmount(address builder) public view returns (uint256) {
+    function unlockedBuilderAmount(address builder) public view returns (uint256 amount) {
         BuilderStreamInfo memory builderStream = streamedBuilders[builder];
-        require(builderStream.cap > 0, "No active stream for builder");
 
         if (block.timestamp - builderStream.last > FREQUENCY) {
             return builderStream.cap;
         }
 
-        return (builderStream.cap * (block.timestamp - builderStream.last)) / FREQUENCY;
+        unchecked {
+            amount = builderStream.cap * (block.timestamp - builderStream.last) / FREQUENCY;
+        }
     }
 
     function addBuilderStream(address payable builder, uint256 cap) public onlyOwner {
@@ -70,13 +71,20 @@ contract GrantStreamer is Owned {
         uint256 totalAmountCanWithdraw = unlockedBuilderAmount(msg.sender);
         require(totalAmountCanWithdraw >= amount, "Not enough in the stream");
 
-        uint256 cappedLast = block.timestamp - FREQUENCY;
+        uint256 cappedLast;
+        unchecked {
+            cappedLast = block.timestamp - FREQUENCY;
+        }
         if (builderStream.last < cappedLast) {
             builderStream.last = cappedLast.toUint128();
         }
 
-        builderStream.last =
-            builderStream.last + ((block.timestamp - builderStream.last) * amount / totalAmountCanWithdraw).toUint128();
+        unchecked {
+            // builderStream.last is suppose to represent the "exact" time of a claim
+            // this is important for partial claims (where amount is less than totalAmountCanWithdraw)
+            uint128 offset = ((block.timestamp - builderStream.last) * amount / totalAmountCanWithdraw).toUint128();
+            builderStream.last = builderStream.last + offset;
+        }
 
         emit Withdraw(msg.sender, amount, reason);
 
